@@ -1,0 +1,21 @@
+# AWS Security Hardener — example config
+# Copy to config.yaml and fill in your values
+
+aws:
+  profile: default
+  region: us-east-1
+
+checks:
+  enabled:
+    - iam
+    - s3
+    - ec2
+    - guardduty
+    - securityhub
+
+thresholds:
+  fail_on: CRITICAL   # exit code 1 if any finding at this level or above
+
+output:
+  format: text        # text | json
+  save_to: report.json
