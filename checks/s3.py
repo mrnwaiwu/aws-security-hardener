@@ -1,9 +1,10 @@
 """
 S3 Security Checks — CIS AWS Benchmark v1.5
-Covers: public buckets, encryption, versioning, logging, ACLs.
+Covers: public buckets, encryption, versioning, logging, ACLs, HTTP policy.
 """
 
 import boto3
+import json
 
 
 def run(profile: str, region: str) -> list:
@@ -18,6 +19,7 @@ def run(profile: str, region: str) -> list:
         findings += _check_encryption(s3, name)
         findings += _check_versioning(s3, name)
         findings += _check_logging(s3, name)
+        findings += _check_https_enforced(s3, name)
 
     return findings
 
@@ -67,3 +69,39 @@ def _check_logging(s3, bucket: str) -> list:
                  "title": f"S3 bucket {bucket} does not have access logging enabled",
                  "remediation": "Enable S3 server access logging"}]
     return []
+
+
+def _check_https_enforced(s3, bucket: str) -> list:
+    """CIS-2.1.3 — Ensure S3 bucket policy denies HTTP (non-HTTPS) requests."""
+    try:
+        policy_str = s3.get_bucket_policy(Bucket=bucket)["Policy"]
+        policy = json.loads(policy_str)
+        for stmt in policy.get("Statement", []):
+            effect = stmt.get("Effect", "")
+            condition = stmt.get("Condition", {})
+            # Look for a Deny statement that blocks non-HTTPS
+            if effect == "Deny":
+                bool_cond = condition.get("Bool", {})
+                if bool_cond.get("aws:SecureTransport") in ["false", False]:
+                    return []
+        return [{
+            "id": "CIS-2.1.3",
+            "severity": "HIGH",
+            "title": f"S3 bucket {bucket} does not enforce HTTPS-only access",
+            "remediation": (
+                "Add a bucket policy statement that denies s3:* when "
+                "aws:SecureTransport is false"
+            ),
+        }]
+    except s3.exceptions.from_code("NoSuchBucketPolicy"):
+        return [{
+            "id": "CIS-2.1.3",
+            "severity": "HIGH",
+            "title": f"S3 bucket {bucket} has no bucket policy — HTTPS not enforced",
+            "remediation": (
+                "Add a bucket policy that denies all s3:* actions when "
+                "aws:SecureTransport is false"
+            ),
+        }]
+    except Exception:
+        return []
