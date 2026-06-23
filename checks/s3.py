@@ -1,6 +1,6 @@
 """
 S3 Security Checks — CIS AWS Benchmark v1.5
-Covers: public buckets, encryption, versioning, logging, ACLs, HTTP policy.
+Covers: public buckets, encryption, versioning, logging, ACLs, HTTP policy, MFA delete.
 """
 
 import boto3
@@ -20,6 +20,7 @@ def run(profile: str, region: str) -> list:
         findings += _check_versioning(s3, name)
         findings += _check_logging(s3, name)
         findings += _check_https_enforced(s3, name)
+        findings += _check_mfa_delete(s3, name)
 
     return findings
 
@@ -105,3 +106,36 @@ def _check_https_enforced(s3, bucket: str) -> list:
         }]
     except Exception:
         return []
+
+
+def _check_mfa_delete(s3, bucket: str) -> list:
+    """CIS-2.1.4 — Ensure MFA Delete is enabled on versioned S3 buckets.
+
+    MFA Delete adds a second authentication factor before objects or versioning
+    configuration can be permanently deleted, protecting against accidental or
+    malicious data destruction.
+    """
+    try:
+        versioning = s3.get_bucket_versioning(Bucket=bucket)
+        if versioning.get("Status") != "Enabled":
+            # MFA Delete is only meaningful when versioning is active
+            return []
+        if versioning.get("MFADelete") != "Enabled":
+            return [{
+                "id": "CIS-2.1.4",
+                "severity": "MEDIUM",
+                "title": f"S3 bucket {bucket} does not have MFA Delete enabled",
+                "remediation": (
+                    "Enable MFA Delete on the bucket versioning configuration using "
+                    "'aws s3api put-bucket-versioning --versioning-configuration "
+                    "Status=Enabled,MFADelete=Enabled --mfa <serial> <token>'"
+                ),
+            }]
+    except Exception:
+        return [{
+            "id": "CIS-2.1.4",
+            "severity": "LOW",
+            "title": f"Could not verify MFA Delete status for {bucket}",
+            "remediation": "Manually verify MFA Delete setting via AWS Console or CLI",
+        }]
+    return []
